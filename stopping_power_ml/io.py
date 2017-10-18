@@ -67,6 +67,13 @@ def load_qbox_data(path):
     :return: DataFrame"""
     
     qbox_data = qbox.read_qbox(path, slice(None))
+    
+    # Get the file ID from path
+    try:
+        file_id = int(path[:-4].split("_")[-1])
+    except: 
+        file_id = 0
+        
     return pd.DataFrame({
         'atoms': qbox_data,
         'frame_id': list(range(len(qbox_data))),
@@ -74,5 +81,5 @@ def load_qbox_data(path):
         'position': [frame.get_positions()[-1] for frame in qbox_data],
         'velocity': [frame.get_velocities()[-1] for frame in qbox_data],
         'energy': [frame.get_potential_energy() for frame in qbox_data],
-        'file_id': [int(path[:-4].split("_")[-1]),]*len(qbox_data)
+        'file_id': [file_id,]*len(qbox_data)
     })
