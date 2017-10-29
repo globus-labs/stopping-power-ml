@@ -5,6 +5,7 @@ import os
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 import pandas as pd
+from glob import glob
 
 def _expand_density(rho):
     """Density from CUBE is on range [0,1) along each axis, make it go from [0,1]
@@ -83,3 +84,30 @@ def load_qbox_data(path):
         'energy': [frame.get_potential_energy() for frame in qbox_data],
         'file_id': [file_id,]*len(qbox_data)
     })
+
+def load_directory(d):
+    """Load in a directory holding a single trajectory
+    
+    :param d: Path to directory"""
+    
+    # Read in the data files
+    data = []
+    for file in glob('%s/*.out'%d):
+        frame = load_qbox_data(file)
+        frame['file'] = file
+        data.append(frame)
+    data = pd.concat(data)
+    
+    # Sort, assign timestep values
+    data.sort_values(['file_id', 'frame_id'], ascending=True, inplace=True)
+    data['timestep'] = list(range(len(data)))
+    data.set_index('timestep', inplace=True, drop=False)
+    
+    # Compute displacement
+    data['displacement'] = (data['position'] - data['position'][0]).apply(np.linalg.norm)
+    
+    # Add tag for the directory
+    data['directory'] = d
+    
+    return data
+
