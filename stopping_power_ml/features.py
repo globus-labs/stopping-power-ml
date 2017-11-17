@@ -8,6 +8,7 @@ from matminer.featurizers.base import BaseFeaturizer
 from pymatgen.analysis.ewald import EwaldSummation
 from pymatgen.io.ase import AseAtomsAdaptor
 
+
 class IonIonForce(BaseFeaturizer):
     """Compute the stopping force acting on a particle from ion-ion repulsion
     
@@ -45,6 +46,13 @@ class IonIonForce(BaseFeaturizer):
         my_velocity = atoms.get_velocities()[-1,:]
         return -1 * np.dot(my_force, my_velocity) / np.linalg.norm(my_velocity) * 0.03674932
 
+    def implementors(self):
+        return ['Logan Ward',]
+
+    def citations(self):
+        return []
+
+
 class LocalChargeDensity(BaseFeaturizer):
     """Compute the local electronic charge density around a particle.
     
@@ -63,44 +71,59 @@ class LocalChargeDensity(BaseFeaturizer):
         self.times = times
         
     def feature_labels(self):
-        return ['density t=%f'%t for t in self.times]
-    
+        return ['log density t='+str(t) for t in self.times]
+
     def featurize(self, atoms):
         # Compute the positions
         cur_pos = np.array(self.times)[:,np.newaxis] * atoms.get_velocities()[-1, np.newaxis] + atoms.get_positions()[-1]
 
         # Convert to reduced coordinates
         cur_pos = np.linalg.solve(atoms.cell, cur_pos.T) % 1
-        return self.charge(cur_pos.T)
-        
+        return np.log(self.charge(cur_pos.T))
+
+    def implementors(self):
+        return ['Logan Ward', ]
+
+    def citations(self):
+        return []
+
+
 class ProjectedAGNIFingerprints(BaseFeaturizer):
     """Compute the fingerprints of the local atomic environment using the AGNI method
-    
+
     We project these fingerprints along the projectiles direction of travel
-    
+
     Input: ASE atoms object with the projectile as the last atom, units in atomic units
-    
+
     Parameters:
         etas - list of floats, window sizes used in fingerprints
     """
-    
-    def __init__(self, etas):
-        self.agni = AGNIFingerprints(directions=['x','y','z'], etas=etas)
-        
+
+    def __init__(self, etas, cutoff=16):
+        self.agni = AGNIFingerprints(directions=['x','y','z'], etas=etas, cutoff=cutoff)
+
     @property
     def etas(self):
         return self.agni.etas
-    
+
     @etas.setter
     def etas(self, x):
         self.agni.etas = x
-        
+
+    @property
+    def cutoff(self):
+        return self.agni.cutoff
+
+    @cutoff.setter
+    def cutoff(self, x):
+        self.agni.cutoff = x
+
     def feature_labels(self):
         return ['AGNI eta=%.2e'%x for x in self.agni.etas]
-    
+
     def featurize(self, atoms):
         """Get the AGNI fingerprints projected in the direction of travel
-    
+
         :param atoms: ase.Atoms, structure
         :return: ndarray, fingerprints projected in the direction of travel"""
 
@@ -113,5 +136,47 @@ class ProjectedAGNIFingerprints(BaseFeaturizer):
             fingerprints,
             my_velocity
         ) / np.linalg.norm(my_velocity)
-    
+
         return fingerprints
+
+    def implementors(self):
+        return ['Logan Ward', ]
+
+    def citations(self):
+        return []
+
+
+class RepulsionFeatures(BaseFeaturizer):
+    """Compute features the $1/r^n$ repulsion. Designed to be a faster approximation of the Coulomb repulsion force
+
+    Input: ASE atoms object with the projectile as the last atom, units in atomic units
+
+    Parameters:
+        cutoff - float, cutoff distance for potential
+        n - int, exponent for the repulsion potential"""
+
+    def __init__(self, cutoff=40, n=6):
+        self.cutoff = cutoff
+        self.n = n
+
+    def feature_labels(self):
+        return ["repulsion force",]
+
+    def featurize(self, atoms):
+        # Putting these temporarily in here
+        strc = AseAtomsAdaptor.get_structure(atoms)
+        proj = strc[-1]
+
+        # Compute the 'force' acting on the projectile
+        force = np.zeros(3)
+        for n, r in strc.get_neighbors(proj, self.cutoff):
+            disp = n.coords - proj.coords
+            force += disp * proj.specie.Z * n.specie.Z / np.power(r, self.n + 1)
+        my_velocity = atoms.get_velocities()[-1,:]
+        return np.dot(force, my_velocity) / np.linalg.norm(my_velocity)
+
+    def implementors(self):
+        return ['Logan Ward', ]
+
+    def citations(self):
+        return []
