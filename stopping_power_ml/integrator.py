@@ -115,7 +115,12 @@ class TrajectoryIntegrator:
     def compute_stopping_power(self, start_point, lattice_vector, velocity, abserr=0.001, full_output=0, **kwargs):
         """Compute the stopping power along a trajectory.
 
-        """
+        :param start_point: [float], starting point in conventional cell fractional coordinates
+        :param lattice_vector: [int], directional of travel in conventional cell coordinates
+        :param velocity: [float], projectile velocity
+        :param abserr: [flaot], desired level of accuracy
+        :param full_output: [0 or 1], whether to return the full output from `scipy.integrate.quad`
+        :param kwargs: these get passed to `quad`"""
 
         # Create the integration function
         f = self._create_force_calculator(start_point, lattice_vector, velocity)

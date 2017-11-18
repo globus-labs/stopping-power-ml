@@ -53,7 +53,7 @@ def get_charge_density_interpolator(path):
         - function that takes scaled position and returns interpolated density
         - ndarray, cell of the cube file"""
 
-    charge, atoms = cube.read_cube_data(os.path.join('256_Al', path))
+    charge, atoms = cube.read_cube_data(path)
     return _get_interpolator(charge), atoms.cell
 
 
@@ -78,7 +78,7 @@ def load_qbox_data(path):
     # Get the file ID from path
     try:
         file_id = int(path[:-4].split("_")[-1])
-    except IndexError:
+    except (IndexError, ValueError):
         file_id = 0
 
     return pd.DataFrame({
