@@ -4,6 +4,7 @@ from stopping_power_ml.util import move_projectile
 from math import gcd
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.io.ase import AseAtomsAdaptor
+from pymatgen import Structure
 from scipy import linalg
 from scipy.integrate import quad
 import numpy as np
@@ -81,6 +82,60 @@ class TrajectoryIntegrator:
 
         return output
 
+    def _find_near_hits(self, frame_generator, threshold=2):
+        """Determine the positions of near-hits along a trajectory.
+
+        These positions are locations where there is a 'spike' in the force acting on the projectile, which cause
+        issues with the integration scheme.
+
+        :param frame_generator: tool that takes float returns an ase.atoms (see `create_frame_generator`)
+        :param threshold: float, minimum distance
+        :return: [float], positions of closest pass to atoms"""
+
+        # Get the starting and end frames
+        start_point = frame_generator(0).get_positions()[-1]
+        end_point = frame_generator(1).get_positions()[-1]
+        vector = end_point - start_point
+        traj_length = np.linalg.norm(vector)
+
+        # Get the list of atoms that are likely to experience a 'near-hit'
+
+        #   Determine the spacing to check along the line
+        #     We will look for neighbors at several points along the line
+        n_spacings = int(traj_length / threshold / np.sqrt(2)) + 1
+        step_size = np.linalg.norm(vector) / (n_spacings - 1)
+
+        #   Determine the radius to search for neighbors
+        #     For an atom to be within `threshold` of the line, it must be within this radius of a sample point
+        radius = np.sqrt((step_size / 2) ** 2 + threshold ** 2)
+
+        #   Determine the points along the line where we will look for atoms
+        points = [start_point + x * end_point for x in np.linspace(0, 1, n_spacings)]
+
+        #    Look for atoms near those points
+        strc_no_proj = AseAtomsAdaptor.get_structure(frame_generator(0)[:-1])
+        sites = []
+        for point in points:
+            near_sites = strc_no_proj.get_sites_in_sphere(point, radius)
+            sites.extend([x[0] for x in near_sites])
+
+        #    Determine the distance and position along the line from each atom to the line between
+        traj_direction = vector / traj_length
+        near_impact = []
+        for site in sites:
+            from_line = (site.coords - start_point) - np.dot(site.coords - start_point, traj_direction) * traj_direction
+            from_line = np.linalg.norm(from_line)
+            if from_line < threshold:
+                # Determine the coordinate along the path
+                coordinate = np.dot(site.coords - start_point, traj_direction) / traj_length
+                if coordinate < 0 or coordinate > 1:
+                    continue
+
+                # Determine whether this point has already been added
+                if len(near_impact) == 0 or np.abs(np.subtract(near_impact, coordinate)).min() > 1e-6:
+                    near_impact.append(coordinate)
+        return sorted(set(near_impact))
+
     def _create_force_calculator(self, start_point, lattice_vector, velocity):
         """Create a function that computes the force acting on a projectile at a certain point along a trajectory
 
@@ -109,15 +164,18 @@ class TrajectoryIntegrator:
                     inputs.extend(x)
 
             # Evaluate the model
-            return self.model.predict([x])[0]
+            return self.model.predict(np.array([inputs]))[0]
         return output
 
-    def compute_stopping_power(self, start_point, lattice_vector, velocity, abserr=0.001, full_output=0, **kwargs):
+    def compute_stopping_power(self, start_point, lattice_vector, velocity, hit_threshold=2, abserr=0.001,
+                               full_output=0, **kwargs):
         """Compute the stopping power along a trajectory.
 
         :param start_point: [float], starting point in conventional cell fractional coordinates
         :param lattice_vector: [int], directional of travel in conventional cell coordinates
         :param velocity: [float], projectile velocity
+        :param hit_threshold: float, threshold distance for marking when the trajectory passes close enough to an
+                atom to mark the position of closest pass as a discontinuity to the integrator.
         :param abserr: [flaot], desired level of accuracy
         :param full_output: [0 or 1], whether to return the full output from `scipy.integrate.quad`
         :param kwargs: these get passed to `quad`"""
@@ -125,8 +183,12 @@ class TrajectoryIntegrator:
         # Create the integration function
         f = self._create_force_calculator(start_point, lattice_vector, velocity)
 
+        # Determine the locations of peaks in the function (near hits)
+        gen = self._create_frame_generator(start_point, lattice_vector, velocity)
+        near_points = self._find_near_hits(gen, threshold=hit_threshold)
+
         # Perform the integration
-        return quad(f, 0, 1, epsabs=abserr, full_output=full_output, **kwargs)
+        return quad(f, 0, 1, epsabs=abserr, full_output=full_output, points=near_points, **kwargs)
 
 if __name__ == '__main__':
     from ase.atoms import Atoms, Atom
@@ -141,31 +203,48 @@ if __name__ == '__main__':
     # Create the trajectory integrator
     featurizer = ProjectedAGNIFingerprints(etas=None)
     model = DummyRegressor().fit([featurizer.featurize(atoms)], [1])
-    int = TrajectoryIntegrator(atoms, model, [featurizer])
+    tint = TrajectoryIntegrator(atoms, model, [featurizer])
 
     # Make sure it gets the correct trajectory distance for a [1 1 0] conventional cell lattice vector.
     #  This travels along the face of the FCC conventional cell, and repeats halfway across the face.
     #  So, the minimum trajectory is [0.5, 0.5, 0] in conventional cell coordiantes
-    assert np.isclose(int._compute_trajectory([1, 1, 0]), [1.76, 1.76, 0]).all()
+    assert np.isclose(tint._compute_trajectory([1, 1, 0]), [1.76, 1.76, 0]).all()
 
     # Another test: [2 0 0]. This trajectory repeats after [1, 0, 0]
-    assert np.isclose(int._compute_trajectory([2, 0, 0]), [3.52, 0, 0]).all()
+    assert np.isclose(tint._compute_trajectory([2, 0, 0]), [3.52, 0, 0]).all()
 
     # Make sure the frame generator works properly
-    f = int._create_frame_generator([0, 0, 0], [1, 0, 0], 1)
+    f = tint._create_frame_generator([0, 0, 0], [1, 0, 0], 1)
     temp = f(1)
     assert np.isclose([3.52, 0, 0], temp.get_positions()[-1]).all()
     assert np.isclose([1, 0, 0], temp.get_velocities()[-1]).all()
 
-    f = int._create_frame_generator([0.25, 0.25, 0.25], [1, 1, 1], np.sqrt(3))
+    f = tint._create_frame_generator([0.25, 0.25, 0.25], [1, 1, 1], np.sqrt(3))
     temp = f(0.5)
     assert np.isclose([3.52 * 0.75,]*3, temp.get_positions()[-1]).all()
     assert np.isclose([1, 1, 1], temp.get_velocities()[-1]).all()
 
     # Test the force generator (make sure it does not crash)
-    f = int._create_force_calculator([0.25, 0, 0], [1, 0, 0], 1)
+    f = tint._create_force_calculator([0.25, 0, 0], [1, 0, 0], 1)
     assert np.isclose(f(0), 1)  # The model should produce 1 for all inputs
 
     # Test the integrator
-    result = int.compute_stopping_power([0.25, 0, 0], [1, 0, 0], 1)
+    result = tint.compute_stopping_power([0.25, 0, 0], [1, 0, 0], 1)
     assert np.isclose(result[0], 1)
+
+    # Find near impacts
+    result = tint._find_near_hits(tint._create_frame_generator([0, 0, 0], [1, 0, 0], 1), threshold=1)
+    assert len(result) == 2
+    assert np.isclose(result, [0, 1]).all()
+
+    result = tint._find_near_hits(tint._create_frame_generator([0, 0, 0], [1, 0, 0], 1), threshold=2)
+    assert len(result) == 3
+    assert np.isclose(result, [0, 0.5, 1]).all()
+
+    result = tint._find_near_hits(tint._create_frame_generator([0.2, 0, 0], [1, 0, 0], 1), threshold=2)
+    assert len(result) == 2
+    assert np.isclose(result, [0.3, 0.8]).all()
+
+    result = tint._find_near_hits(tint._create_frame_generator([0, 0, 0.4], [1, 0, 0], 1), threshold=1)
+    assert len(result) == 1
+    assert np.isclose(result, [0.5]).all()
