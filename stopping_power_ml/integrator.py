@@ -135,12 +135,12 @@ class TrajectoryIntegrator:
                 if len(near_impact) == 0 or np.abs(np.subtract(near_impact, coordinate)).min() > 1e-6:
                     near_impact.append(coordinate)
         return sorted(set(near_impact))
-
-    def _create_force_calculator(self, start_point, lattice_vector, velocity):
-        """Create a function that computes the force acting on a projectile at a certain point along a trajectory
+    
+    def _create_model_inputs(self, start_point, lattice_vector, velocity):
+        """Create a function that computes the inputs to the force model at a certain point along a trajectory
 
         As in `_create_frame_generator`, the function takes a float between 0 and 1 as an argument. A value of 0
-        returns the force at the starting point of the trajectory. A value of 1 returns the force at the first
+        returns the inputs for the force model at the starting point of the trajectory. A value of 1 returns the inputs at the first
         point where the trajectory repeats. Values between 0-1 are linearly spaced between the two.
 
         :param start_point: [float], starting point in conventional cell fractional coordinates
@@ -162,12 +162,30 @@ class TrajectoryIntegrator:
                     inputs.append(x)
                 else:
                     inputs.extend(x)
+            return inputs
+        return output
 
+    def _create_force_calculator(self, start_point, lattice_vector, velocity):
+        """Create a function that computes the force acting on a projectile at a certain point along a trajectory
+
+        As in `_create_frame_generator`, the function takes a float between 0 and 1 as an argument. A value of 0
+        returns the force at the starting point of the trajectory. A value of 1 returns the force at the first
+        point where the trajectory repeats. Values between 0-1 are linearly spaced between the two.
+
+        :param start_point: [float], starting point in conventional cell fractional coordinates
+        :param lattice_vector: [int], directional of travel in conventional cell coordinates
+        :param velocity: [float], projectile velocity
+        :return: function float->float"""
+
+        generator = self._create_frame_generator(start_point, lattice_vector, velocity)
+
+        def output(x):
             # Evaluate the model
+            inputs = featurizers(x)
             return self.model.predict(np.array([inputs]))[0]
         return output
 
-    def compute_stopping_power(self, start_point, lattice_vector, velocity, hit_threshold=2, abserr=0.001,
+    def compute_stopping_power(self, start_point, lattice_vector, velocity, hit_threshold=2, max_spacing=0.001, abserr=0.0001,
                                full_output=0, **kwargs):
         """Compute the stopping power along a trajectory.
 
@@ -186,9 +204,14 @@ class TrajectoryIntegrator:
         # Determine the locations of peaks in the function (near hits)
         gen = self._create_frame_generator(start_point, lattice_vector, velocity)
         near_points = self._find_near_hits(gen, threshold=hit_threshold)
+        
+        # Determine the maximum number of intervals such that the maximum number of evaluations is below 
+        #   a certain effective spacing
+        traj_length = np.linalg.norm(self._compute_trajectory(lattice_vector))
+        max_inter = int(max(50, traj_length / max_spacing / 21)) # QUADPACK uses 21 points per interval
 
         # Perform the integration
-        return quad(f, 0, 1, epsabs=abserr, full_output=full_output, points=near_points, **kwargs)
+        return quad(f, 0, 1, epsabs=abserr, full_output=full_output, points=near_points, limit=max_inter, **kwargs)
 
 if __name__ == '__main__':
     from ase.atoms import Atoms, Atom
