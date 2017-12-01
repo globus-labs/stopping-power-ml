@@ -180,3 +180,18 @@ class RepulsionFeatures(BaseFeaturizer):
 
     def citations(self):
         return []
+
+    
+class ProjectileVelocity(BaseFeaturizer):
+    """Compute the projectile velocity
+    
+    Input: ASE atoms object with the projectile as the last atom, units in atomic units
+    
+    Parameters: None"""
+    
+    def feature_labels(self):
+        return ["velocity",]
+    
+    def featurize(self, atoms):
+        return np.linalg.norm(atoms.get_velocities()[-1,:])
+    

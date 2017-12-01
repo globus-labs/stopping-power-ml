@@ -1,10 +1,10 @@
 """Options relating to determining the stopping power over a path"""
+from pymatgen.core.structure import Structure
 
 from stopping_power_ml.util import move_projectile
 from math import gcd
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.io.ase import AseAtomsAdaptor
-from pymatgen import Structure
 from scipy import linalg
 from scipy.integrate import quad
 import numpy as np
@@ -26,8 +26,8 @@ class TrajectoryIntegrator:
         self.featurizers = featurizers
 
         # Compute the primitive unit cell vectors (structure minus the projectile.
-        strc = AseAtomsAdaptor.get_structure(atoms[:-1])
-        spg = SpacegroupAnalyzer(strc)
+        self.simulation_cell = AseAtomsAdaptor.get_structure(atoms[:-1])
+        spg = SpacegroupAnalyzer(self.simulation_cell)
         self.prim_strc = spg.find_primitive()
         self.conv_strc = spg.get_conventional_standard_structure()
 
@@ -82,21 +82,25 @@ class TrajectoryIntegrator:
 
         return output
 
-    def _find_near_hits(self, frame_generator, threshold=2):
+    def _find_near_hits(self, start_point, lattice_vector, threshold):
         """Determine the positions of near-hits along a trajectory.
 
         These positions are locations where there is a 'spike' in the force acting on the projectile, which cause
         issues with the integration scheme.
 
-        :param frame_generator: tool that takes float returns an ase.atoms (see `create_frame_generator`)
-        :param threshold: float, minimum distance
+        :param start_point: [float], starting point in conventional cell fractional coordinates
+        :param lattice_vector: [int], directional of travel in conventional cell coordinates
+        :param threshold: float, minimum distance at which
         :return: [float], positions of closest pass to atoms"""
 
-        # Get the starting and end frames
-        start_point = frame_generator(0).get_positions()[-1]
-        end_point = frame_generator(1).get_positions()[-1]
-        vector = end_point - start_point
+        # Compute the displacement of this path
+        vector = self._compute_trajectory(lattice_vector)
         traj_length = np.linalg.norm(vector)
+
+        # Convert the start point to Cartesian coordinates
+        start_point = self.conv_strc.lattice.get_cartesian_coords(start_point)
+
+        # Get the end point
 
         # Get the list of atoms that are likely to experience a 'near-hit'
 
@@ -110,13 +114,12 @@ class TrajectoryIntegrator:
         radius = np.sqrt((step_size / 2) ** 2 + threshold ** 2)
 
         #   Determine the points along the line where we will look for atoms
-        points = [start_point + x * end_point for x in np.linspace(0, 1, n_spacings)]
+        points = [start_point + x * vector for x in np.linspace(0, 1, n_spacings)]
 
         #    Look for atoms near those points
-        strc_no_proj = AseAtomsAdaptor.get_structure(frame_generator(0)[:-1])
         sites = []
         for point in points:
-            near_sites = strc_no_proj.get_sites_in_sphere(point, radius)
+            near_sites = self.simulation_cell.get_sites_in_sphere(point, radius)
             sites.extend([x[0] for x in near_sites])
 
         #    Determine the distance and position along the line from each atom to the line between
@@ -177,16 +180,16 @@ class TrajectoryIntegrator:
         :param velocity: [float], projectile velocity
         :return: function float->float"""
 
-        generator = self._create_frame_generator(start_point, lattice_vector, velocity)
+        generator = self._create_model_inputs(start_point, lattice_vector, velocity)
 
         def output(x):
             # Evaluate the model
-            inputs = featurizers(x)
+            inputs = generator(x)
             return self.model.predict(np.array([inputs]))[0]
         return output
 
-    def compute_stopping_power(self, start_point, lattice_vector, velocity, hit_threshold=2, max_spacing=0.001, abserr=0.0001,
-                               full_output=0, **kwargs):
+    def compute_stopping_power(self, start_point, lattice_vector, velocity, hit_threshold=2,
+                               max_spacing=0.001, abserr=0.001, full_output=0, **kwargs):
         """Compute the stopping power along a trajectory.
 
         :param start_point: [float], starting point in conventional cell fractional coordinates
@@ -202,8 +205,7 @@ class TrajectoryIntegrator:
         f = self._create_force_calculator(start_point, lattice_vector, velocity)
 
         # Determine the locations of peaks in the function (near hits)
-        gen = self._create_frame_generator(start_point, lattice_vector, velocity)
-        near_points = self._find_near_hits(gen, threshold=hit_threshold)
+        near_points = self._find_near_hits(start_point, lattice_vector, threshold=hit_threshold)
         
         # Determine the maximum number of intervals such that the maximum number of evaluations is below 
         #   a certain effective spacing
@@ -256,18 +258,20 @@ if __name__ == '__main__':
     assert np.isclose(result[0], 1)
 
     # Find near impacts
-    result = tint._find_near_hits(tint._create_frame_generator([0, 0, 0], [1, 0, 0], 1), threshold=1)
+    result = tint._find_near_hits([0, 0, 0], [1, 0, 0], threshold=1)
     assert len(result) == 2
     assert np.isclose(result, [0, 1]).all()
 
-    result = tint._find_near_hits(tint._create_frame_generator([0, 0, 0], [1, 0, 0], 1), threshold=2)
+    result = tint._find_near_hits([0, 0, 0], [1, 0, 0], threshold=2)
     assert len(result) == 3
     assert np.isclose(result, [0, 0.5, 1]).all()
 
-    result = tint._find_near_hits(tint._create_frame_generator([0.2, 0, 0], [1, 0, 0], 1), threshold=2)
+    result = tint._find_near_hits([0.2, 0, 0], [1, 0, 0], threshold=2)
     assert len(result) == 2
     assert np.isclose(result, [0.3, 0.8]).all()
 
-    result = tint._find_near_hits(tint._create_frame_generator([0, 0, 0.4], [1, 0, 0], 1), threshold=1)
+    result = tint._find_near_hits([0, 0, 0.4], [1, 0, 0], threshold=1)
     assert len(result) == 1
     assert np.isclose(result, [0.5]).all()
+
+    assert np.isclose(tint._find_near_hits([0,0.75,0.85], [5,-1,-1], 0.5), [0.8])
