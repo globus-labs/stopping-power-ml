@@ -73,9 +73,11 @@ class _SymmetrizedInterpolator:
         prim_strc = spg.get_primitive_standard_structure()
 
         # Generate a new interpolator
-        sym_ops = SpacegroupAnalyzer(prim_strc).get_symmetry_operations()
+        self.sym_ops = SpacegroupAnalyzer(prim_strc).get_symmetry_operations()
         self.cell_to_prim = np.linalg.solve(prim_strc.lattice.matrix, strc.lattice.matrix)
         prim_to_cell = np.linalg.inv(self.cell_to_prim)
+
+        # Get all 6 corners of the primitive cell
 
         # Generate an interpolator over the primitive cell
         spacing = [-1.0/(n_points-1),] + np.linspace(0, 1, n_points).tolist() + [1 + 1.0/(n_points-1),]
@@ -86,7 +88,7 @@ class _SymmetrizedInterpolator:
         for c in zip(xx, yy, zz):
             pcc = []
             found_equivalent = False
-            for op in sym_ops:
+            for op in self.sym_ops:
                 sc = op.operate(c) % 1 # Get the point to be sampled
 
                 # Check whether this point has already been sampled
@@ -122,10 +124,20 @@ class _SymmetrizedInterpolator:
     def __call__(self, x):
         """Evaluate the interpolator
 
-        :param x: nx3 """
+        :param x: nx3, coordinates of point in supercell"""
         x = np.array(x)
-        X_prim = np.dot(self.cell_to_prim, x.T)
-        return self.prim_inter(*(X_prim % 1))
+        X_prim = np.dot(self.cell_to_prim, x.T) % 1
+        if X_prim.shape == (3,):
+            return self.evaluate_with_symmetry(X_prim)
+        return np.array([self.evaluate_with_symmetry(point) for point in X_prim.T])
+
+    def evaluate_with_symmetry(self, point):
+        """Evaluate the interpolator across all equivalent points in the primitive cell
+        :param point: nx3, """
+        points = []
+        for op in self.sym_ops:
+            points.append(op.operate(point) % 1)  # Get the point to be sampled
+        return sum(self.prim_inter(*np.transpose(points))) / len(self.sym_ops)
 
 
 def get_charge_density_interpolator(path, symmetry=False, sym_accuracy=16):
@@ -215,3 +227,5 @@ if __name__ == "__main__":
     print(charge([0.25,]*3))
     print(charge([[0,1,0],[1,0,0]]))
     print(charge([0.1,0.1,0])-charge([0.35,0.1,0]))
+    print(charge([0.1, 0.1, 0]), charge([-0.1, 0.1, 0]))
+    print(charge([0.1, 0.1, 0]) - charge([-0.1, 0.1, 0]))
