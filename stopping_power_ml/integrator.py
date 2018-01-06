@@ -82,11 +82,19 @@ class TrajectoryIntegrator:
 
         return output
 
-    def _find_near_hits(self, start_point, lattice_vector, threshold):
+    def _find_near_hits(self, start_point, lattice_vector, threshold, estimate_extrema=False):
         """Determine the positions of near-hits along a trajectory.
 
         These positions are locations where there is a 'spike' in the force acting on the projectile, which cause
-        issues with the integration scheme.
+        issues with the integration scheme. It there are two peaks for each near-hit: one as it approaches and
+        one as it departs (at the point of closest path the force from the largest contribution to force, ion-ion
+        repulsion, is zero).
+
+        If you set `estimate_estimate_extrema` to True, this code will return the estimated positions of the two
+        peaks. If False, this function returns the position of closest path.
+
+        The positions are returned in fractional displacement along a trajectory, where 0 is the starting point
+        and 1 is the first point at which the trajectory starts to repeat (due to symmetry).
 
         :param start_point: [float], starting point in conventional cell fractional coordinates
         :param lattice_vector: [int], directional of travel in conventional cell coordinates
@@ -99,8 +107,6 @@ class TrajectoryIntegrator:
 
         # Convert the start point to Cartesian coordinates
         start_point = self.conv_strc.lattice.get_cartesian_coords(start_point)
-
-        # Get the end point
 
         # Get the list of atoms that are likely to experience a 'near-hit'
 
@@ -129,14 +135,33 @@ class TrajectoryIntegrator:
             from_line = (site.coords - start_point) - np.dot(site.coords - start_point, traj_direction) * traj_direction
             from_line = np.linalg.norm(from_line)
             if from_line < threshold:
-                # Determine the coordinate along the path
-                coordinate = np.dot(site.coords - start_point, traj_direction) / traj_length
-                if coordinate < 0 or coordinate > 1:
-                    continue
+                # Determine the displacement at which the projectile is closest to this atom
+                position = np.dot(site.coords - start_point, traj_direction)
 
-                # Determine whether this point has already been added
-                if len(near_impact) == 0 or np.abs(np.subtract(near_impact, coordinate)).min() > 1e-6:
-                    near_impact.append(coordinate)
+                if estimate_extrema:
+                    # Determine the expected positions of the maxima
+                    #   We assume that the main driver of the stopping power is the 'ion-ion'
+                    #    repulsion. This force is proportional to 1/r^2*cos(theta) where r is the
+                    #    distance between the particle and the nearest atomic core, and
+                    #    theta is the angle between the direction of travel and line
+                    #    between the projectile and atom. It works out that this means the
+                    #    maximum force is +/-d/sqrt(2) from the position of closest transit, where
+                    #    d is the distance between the projectile's path and this atom
+                    special_points = np.multiply([-1,1], from_line / np.sqrt(2)) + position
+
+                    coordinates = [x / traj_length for x in special_points]
+                else:
+                    # Determine the fraction position along the path
+                    coordinates = [position / traj_length]
+
+                for coordinate in coordinates:
+                    # Determine whether it is before or after the start of the trajectory
+                    if coordinate < 0 or coordinate > 1:
+                        continue
+
+                    # Determine whether this point has already been added
+                    if len(near_impact) == 0 or np.abs(np.subtract(near_impact, coordinate)).min() > 1e-6:
+                        near_impact.append(coordinate)
         return sorted(set(near_impact))
     
     def _create_model_inputs(self, start_point, lattice_vector, velocity):
@@ -205,7 +230,8 @@ class TrajectoryIntegrator:
         f = self._create_force_calculator(start_point, lattice_vector, velocity)
 
         # Determine the locations of peaks in the function (near hits)
-        near_points = self._find_near_hits(start_point, lattice_vector, threshold=hit_threshold)
+        near_points = self._find_near_hits(start_point, lattice_vector, threshold=hit_threshold,
+                                           estimate_extrema=True)
         
         # Determine the maximum number of intervals such that the maximum number of evaluations is below 
         #   a certain effective spacing
@@ -275,3 +301,17 @@ if __name__ == '__main__':
     assert np.isclose(result, [0.5]).all()
 
     assert np.isclose(tint._find_near_hits([0,0.75,0.85], [5,-1,-1], 0.5), [0.8])
+
+    # Find peaks around near impacts
+    result = tint._find_near_hits([0, 0, 0], [1, 0, 0], threshold=1, estimate_extrema=True)
+    assert len(result) == 2
+    assert np.isclose(result, [0, 1]).all()
+
+    result = tint._find_near_hits([0, 0, 0], [1, 0, 0], threshold=2, estimate_extrema=True)
+    assert len(result) == 4
+    assert np.isclose(result, [0, 0.5 * (1 - np.sqrt(0.5)), 0.5 * (1 + np.sqrt(0.5)), 1]).all()
+
+    result = tint._find_near_hits([0, 0, 0.4], [1, 0, 0], threshold=1, estimate_extrema=True)
+    delta = 0.1 / np.sqrt(2)
+    assert len(result) == 2
+    assert np.isclose(result, [0.5 - delta, 0.5 + delta]).all()
