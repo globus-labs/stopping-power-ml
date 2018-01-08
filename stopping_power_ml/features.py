@@ -76,9 +76,11 @@ class LocalChargeDensity(BaseFeaturizer):
     def featurize(self, atoms):
         # Compute the positions
         cur_pos = np.array(self.times)[:,np.newaxis] * atoms.get_velocities()[-1, np.newaxis] + atoms.get_positions()[-1]
+        print('Real positions:', cur_pos)
 
         # Convert to reduced coordinates
         cur_pos = np.linalg.solve(atoms.cell, cur_pos.T) % 1
+        print('Cell positions:', cur_pos.T)
         return np.log(self.charge(cur_pos.T))
 
     def implementors(self):
@@ -194,4 +196,3 @@ class ProjectileVelocity(BaseFeaturizer):
     
     def featurize(self, atoms):
         return np.linalg.norm(atoms.get_velocities()[-1,:])
-    

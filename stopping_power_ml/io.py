@@ -5,7 +5,7 @@ import os
 import numpy as np
 from pymatgen.io.ase import AseAtomsAdaptor
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
-from scipy.interpolate import RegularGridInterpolator, rbf
+from scipy.interpolate import RegularGridInterpolator
 import pandas as pd
 from glob import glob
 import sys
@@ -17,7 +17,7 @@ def _expand_density(rho):
     Do so by appending the data at '0' to that at 1 (periodic boundary conditions)"""
 
     # Make a slightly larger array
-    rho_new = np.zeros(np.array(rho.shape)+1)
+    rho_new = np.zeros(np.array(rho.shape) + 1)
 
     # Copy over the data
     rho_new[:rho.shape[0], :rho.shape[1], :rho.shape[2]] = rho  # Bulk of the data
@@ -48,7 +48,7 @@ def _get_interpolator(cd, symmetry=False, cell=None, sym_accuracy=16):
     charge = _expand_density(cd)
 
     # Make the interpolation function
-    inter = RegularGridInterpolator([list(np.linspace(0, 1, x)) for x in charge.shape], charge) 
+    inter = RegularGridInterpolator([list(np.linspace(0, 1, x)) for x in charge.shape], charge)
     if not symmetry:
         return inter
 
@@ -77,10 +77,8 @@ class _SymmetrizedInterpolator:
         self.cell_to_prim = np.linalg.solve(prim_strc.lattice.matrix, strc.lattice.matrix)
         prim_to_cell = np.linalg.inv(self.cell_to_prim)
 
-        # Get all 6 corners of the primitive cell
-
         # Generate an interpolator over the primitive cell
-        spacing = [-1.0/(n_points-1),] + np.linspace(0, 1, n_points).tolist() + [1 + 1.0/(n_points-1),]
+        spacing = np.linspace(0, 1, n_points).tolist()
         xx, yy, zz = np.meshgrid(spacing, spacing, spacing)
         cc = []
         xx, yy, zz = xx.flatten(), yy.flatten(), zz.flatten()
@@ -89,7 +87,7 @@ class _SymmetrizedInterpolator:
             pcc = []
             found_equivalent = False
             for op in self.sym_ops:
-                sc = op.operate(c) % 1 # Get the point to be sampled
+                sc = op.operate(c) % 1  # Get the point to be sampled
 
                 # Check whether this point has already been sampled
                 if len(already_checked) > 0:
@@ -113,10 +111,10 @@ class _SymmetrizedInterpolator:
             already_checked.append(c)
 
         # Reshape the charge densities
-        cc = np.array(cc).reshape((len(spacing),)*3)
+        cc = np.array(cc).reshape((len(spacing),) * 3)
 
         # Build an interpolator
-        self.prim_inter = rbf.Rbf(xx, yy, zz, cc, function='gaussian')
+        self.prim_inter = RegularGridInterpolator((spacing,) * 3, cc)
 
         # Store the prim->Cartesian space vector
         self.prim_to_cart = prim_strc.lattice.matrix
@@ -137,7 +135,7 @@ class _SymmetrizedInterpolator:
         points = []
         for op in self.sym_ops:
             points.append(op.operate(point) % 1)  # Get the point to be sampled
-        return sum(self.prim_inter(*np.transpose(points))) / len(self.sym_ops)
+        return sum(self.prim_inter(points)) / len(self.sym_ops)
 
 
 def get_charge_density_interpolator(path, symmetry=False, sym_accuracy=16):
@@ -185,7 +183,7 @@ def load_qbox_data(path):
         'position': [frame.get_positions()[-1] for frame in qbox_data],
         'velocity': [frame.get_velocities()[-1] for frame in qbox_data],
         'energy': [frame.get_potential_energy() for frame in qbox_data],
-        'file_id': [file_id, ]*len(qbox_data)
+        'file_id': [file_id, ] * len(qbox_data)
     })
 
 
@@ -197,11 +195,11 @@ def load_directory(d, prefix=""):
 
     # Read in the data files
     data = []
-    for file in glob('%s/%s*.out'%(d, prefix)):
+    for file in glob('%s/%s*.out' % (d, prefix)):
         try:
             frame = load_qbox_data(file)
         except:
-            print('File failed to read: %s'%file, file=sys.stderr)
+            print('File failed to read: %s' % file, file=sys.stderr)
             raise
         frame['file'] = file
         data.append(frame)
@@ -214,18 +212,18 @@ def load_directory(d, prefix=""):
 
     # Compute displacement
     data['displacement'] = (data['position'] - data['position'].iloc[0]).apply(np.linalg.norm)
-    
+
     # Add tag for the directory
     data['directory'] = d
-    
+
     return data
 
 
 if __name__ == "__main__":
     charge, cell = get_charge_density_interpolator(os.path.join('..', 'datasets', '256_Al', 'Al_semi_core_gs.cube'),
                                                    symmetry=True, sym_accuracy=4)
-    print(charge([0.25,]*3))
-    print(charge([[0,1,0],[1,0,0]]))
-    print(charge([0.1,0.1,0])-charge([0.35,0.1,0]))
+    print(charge([0.25, ] * 3))
+    print(charge([[0, 1, 0], [1, 0, 0]]))
+    print(charge([0.1, 0.1, 0]) - charge([0.35, 0.1, 0]))
     print(charge([0.1, 0.1, 0]), charge([-0.1, 0.1, 0]))
     print(charge([0.1, 0.1, 0]) - charge([-0.1, 0.1, 0]))
