@@ -14,19 +14,23 @@ class ProjectileFeaturizer(BaseFeaturizer):
 
     Handles determining the primitive cell of a material, adding projectile to the simulation cell, etc."""
 
-    def __init__(self, simulation_cell):
+    def __init__(self, simulation_cell, use_prim_cell=True):
         """
 
         :param simulation_cell: ase.Atoms, simulation cell, with projectile as the last entry
+        :param use_prim_cell: bool, whether to use primitive cell in calculation
         """
+
         # Compute the primitive unit cell vectors (structure minus the projectile.
         self.simulation_cell = AseAtomsAdaptor.get_structure(simulation_cell[:-1])
 
-        # We use the `get_primitive_structure()` operation because it does not
-        #  translate the atoms (spglib will). Translations mean the cartesian coordinates
-        #  in the simulation cell and primitive cell are not the same, which causes all
-        #  kinds of problems
-        self.prim_cell = self.simulation_cell.get_primitive_structure()
+        self.use_prim_cell = use_prim_cell
+        if use_prim_cell:
+            # We use the `get_primitive_structure()` operation because it does not
+            #  translate the atoms (spglib will). Translations mean the cartesian coordinates
+            #  in the simulation cell and primitive cell are not the same, which causes all
+            #  kinds of problems
+            self.prim_cell = self.simulation_cell.get_primitive_structure()
 
     def _insert_projectile(self, position):
         """Add the projectile at a certain position into the primitive cell
@@ -34,7 +38,7 @@ class ProjectileFeaturizer(BaseFeaturizer):
         :param position: [float]*3, projectile position in cartesian coordinates
         :return: Structure, output of the cell"""
 
-        x = self.prim_cell.copy()
+        x = self.prim_cell.copy() if self.use_prim_cell else self.simulation_cell.copy()
         x.append('H', position, coords_are_cartesian=True)
         return x
 
@@ -56,8 +60,8 @@ class IonIonForce(ProjectileFeaturizer):
     Parameters:
         acc - float, accuracy of the Ewald summation (default=3)"""
 
-    def __init__(self, simulation_cell, acc=3):
-        super(IonIonForce, self).__init__(simulation_cell)
+    def __init__(self, simulation_cell, acc=3, **kwargs):
+        super(IonIonForce, self).__init__(simulation_cell, **kwargs)
         self.acc = acc
 
     def feature_labels(self):
@@ -101,8 +105,8 @@ class LocalChargeDensity(ProjectileFeaturizer):
         times - list of float, times at which to evaluate the density
     """
 
-    def __init__(self, simulation_cell, charge, times):
-        super(LocalChargeDensity, self).__init__(simulation_cell)
+    def __init__(self, simulation_cell, charge, times, **kwargs):
+        super(LocalChargeDensity, self).__init__(simulation_cell, **kwargs)
         self.charge = charge
         self.times = times
 
@@ -128,17 +132,19 @@ class LocalChargeDensity(ProjectileFeaturizer):
 class ProjectedAGNIFingerprints(ProjectileFeaturizer):
     """Compute the fingerprints of the local atomic environment using the AGNI method
 
-    We project these fingerprints along the projectiles direction of travel
+    We project these fingerprints along the projectiles direction of travel, and the
+    unprojected fingerprints
 
     Input: Position and velocity of projectile
 
     Parameters:
         etas - list of floats, window sizes used in fingerprints
+        cutoff - float, cutoff distance for features
     """
 
-    def __init__(self, simulation_cell, etas, cutoff=16):
-        super(ProjectedAGNIFingerprints, self).__init__(simulation_cell)
-        self.agni = AGNIFingerprints(directions=['x', 'y', 'z'], etas=etas, cutoff=cutoff)
+    def __init__(self, simulation_cell, etas, cutoff=16, **kwargs):
+        super(ProjectedAGNIFingerprints, self).__init__(simulation_cell, **kwargs)
+        self.agni = AGNIFingerprints(directions=['x', 'y', 'z', None], etas=etas, cutoff=cutoff)
 
     @property
     def etas(self):
@@ -157,20 +163,21 @@ class ProjectedAGNIFingerprints(ProjectileFeaturizer):
         self.agni.cutoff = x
 
     def feature_labels(self):
-        return ['AGNI eta=%.2e' % x for x in self.agni.etas]
+        return ['AGNI projected eta=%.2e' % x for x in self.agni.etas] + \
+               ['AGNI eta=%.2e' % x for x in self.agni.etas]
 
     def featurize(self, position, velocity):
         # Compute the AGNI fingerprints [i,j] where i is fingerprint, and j is direction
         strc = self._insert_projectile(position)
-        fingerprints = self.agni.featurize(strc, -1).reshape((3, -1)).T
+        fingerprints = self.agni.featurize(strc, -1).reshape((4, -1)).T
 
         # Project into direction of travel
-        fingerprints = np.dot(
-            fingerprints,
+        proj_fingerprints = np.dot(
+            fingerprints[:, :-1],
             velocity
         ) / np.linalg.norm(velocity)
 
-        return fingerprints
+        return np.hstack((proj_fingerprints, fingerprints[:, -1]))
 
     def implementors(self):
         return ['Logan Ward', ]
