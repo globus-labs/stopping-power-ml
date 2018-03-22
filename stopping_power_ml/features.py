@@ -3,10 +3,13 @@
 import abc
 
 import numpy as np
+from scipy.integrate import tplquad
+from scipy.stats import multivariate_normal
 from matminer.featurizers.site import AGNIFingerprints
 from matminer.featurizers.base import BaseFeaturizer
 from pymatgen.analysis.ewald import EwaldSummation
 from pymatgen.io.ase import AseAtomsAdaptor
+from itertools import product
 
 
 class ProjectileFeaturizer(BaseFeaturizer):
@@ -115,12 +118,74 @@ class LocalChargeDensity(ProjectileFeaturizer):
 
     def featurize(self, position, velocity):
         # Compute the positions
-        cur_pos = np.array(self.times)[:, np.newaxis] * np.array(velocity)[-1, np.newaxis] \
+        cur_pos = np.array(self.times)[:, np.newaxis] * np.array([velocity]*len(self.times)) \
                   + position
 
         # Convert to reduced coordinates
         cur_pos = np.linalg.solve(self.simulation_cell.lattice.matrix, cur_pos.T) % 1
-        return np.log(self.charge(cur_pos.T))
+        return [self._get_smeared_density(pos, 0.1) for pos in cur_pos.T]
+
+    def _get_smeared_density(self, position, sigma, max_r=5, quad=False):
+        """Compute a weighted average of the density around a point, where
+        the density is weighted by a Gaussian.
+
+        :param position: 3x1 array, local to be assessed
+        :param sigma: float, strength of Gaussian
+        :param max_r: float, how far to average out. Radius limit of
+            integral will be `max_r * sigma`
+        :return: float, local average"""
+
+        # Compute the range of integration
+        rmax = sigma * max_r
+
+        def rho(theta, phi, r):
+            shifts = np.transpose([np.multiply(r, np.sin(theta) * np.cos(phi)),
+                                   np.multiply(r, np.sin(theta) * np.sin(phi)),
+                                   np.multiply(r, np.cos(theta))])
+            pos = shifts + np.atleast_2d(position)
+            pos = np.linalg.solve(self.simulation_cell.lattice.matrix, pos.T) % 1
+
+            output = self.charge(pos.T) * np.exp(-0.5 * np.power(r / sigma, 2)) / \
+                     np.sqrt(np.power(np.pi * 2 * sigma ** 2, 3))
+            if quad:
+                output *= np.sin(theta) * np.power(r, 2)
+            return output
+
+        if quad:
+            return tplquad(rho, 0, rmax,  # r limits
+                           lambda x: 0, lambda x: 2 * np.pi,  # phi limits
+                           lambda x, y: 0, lambda x, y: np.pi,  # theta limits
+                           epsabs=0.1, epsrel=0.1)[0] / \
+                            (4 / 3 * np.pi * (sigma * max_r) ** 3)
+        else:
+            # Create an interpolation grid
+            accuracy = 9
+            r = np.linspace(0, rmax, accuracy + 2)[1:-1]
+            phi = np.linspace(0, 2 * np.pi, accuracy + 2)[1:-1]
+            theta = np.linspace(0, np.pi, accuracy + 2)[1:-1]
+            points = np.array(list(product(theta, phi, r)))
+
+            # Unpack the coordinates for each point
+            r = points[:, 2]
+            phi = points[:, 1]
+            theta = points[:, 0]
+
+            # Evaluate the grid points
+            my_rho = rho(*points.T)
+
+            # Compute the box sizes
+            #  Each voxel is at the center of a spherical section that
+            #   extends half of (rmax / accuracy) to the front and back,
+            #   half of (2pi / accuracy) for phi to each azimuthal angle
+            #   and half of (pi / accuracy) to each inclination angle
+            dR = rmax / accuracy / 2
+            dPhi = np.pi / accuracy
+            dTheta = np.pi / accuracy / 2
+            vol = (np.power(r + dR, 3) - np.power(r - dR, 3)) / 3 \
+                * (np.cos(theta - dTheta) - np.cos(theta + dTheta)) \
+                * (dPhi * 2)
+
+            return np.dot(my_rho, vol)
 
     def implementors(self):
         return ['Logan Ward', ]
