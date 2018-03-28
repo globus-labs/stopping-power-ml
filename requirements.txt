@@ -7,5 +7,4 @@ tqdm
 pymatgen>='2017.9.3'
 ase
 matminer
-parsl
 ipyparallel

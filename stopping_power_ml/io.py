@@ -208,7 +208,6 @@ def load_directory(d, prefix=""):
     # Sort, assign timestep values
     data.sort_values(['file_id', 'frame_id'], ascending=True, inplace=True)
     data['timestep'] = list(range(len(data)))
-    data.set_index('timestep', inplace=True, drop=False)
 
     # Compute displacement
     data['displacement'] = (data['position'] - data['position'].iloc[0]).apply(np.linalg.norm)

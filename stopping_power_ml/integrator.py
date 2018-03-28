@@ -64,7 +64,7 @@ class TrajectoryIntegrator:
         :param start_point: [float], starting point in conventional cell fractional coordinates
         :param lattice_vector: [int], directional of travel in conventional cell coordinates
         :param velocity: [float], projectile velocity
-        :return: function float->ase.Atoms"""
+        :return: function that returns position as a function of time float->([float]*3, [float]*3)"""
 
         # Get the trajectory vector
         traj_vec = self._compute_trajectory(lattice_vector)
@@ -78,7 +78,7 @@ class TrajectoryIntegrator:
         # Create the function
         def output(x):
             position = traj_vec * x + start_point
-            return move_projectile(self.atoms, position, velocity_vec)
+            return position, velocity_vec
 
         return output
 
@@ -185,11 +185,8 @@ class TrajectoryIntegrator:
             # Get the inputs to the model
             inputs = []
             for f in self.featurizers:
-                x = f.featurize(frame)
-                if isinstance(x, float):
-                    inputs.append(x)
-                else:
-                    inputs.extend(x)
+                x = f.featurize(*frame)
+                inputs.extend(x)
             return inputs
         return output
 
@@ -252,8 +249,8 @@ if __name__ == '__main__':
     atoms.append(Atom('H', [3.52/4, 3.52/4, 0], momentum=[1, 0, 0]))
 
     # Create the trajectory integrator
-    featurizer = ProjectedAGNIFingerprints(etas=None)
-    model = DummyRegressor().fit([featurizer.featurize(atoms)], [1])
+    featurizer = ProjectedAGNIFingerprints(atoms, etas=None)
+    model = DummyRegressor().fit([[0,]*8], [1])
     tint = TrajectoryIntegrator(atoms, model, [featurizer])
 
     # Make sure it gets the correct trajectory distance for a [1 1 0] conventional cell lattice vector.
@@ -266,14 +263,14 @@ if __name__ == '__main__':
 
     # Make sure the frame generator works properly
     f = tint._create_frame_generator([0, 0, 0], [1, 0, 0], 1)
-    temp = f(1)
-    assert np.isclose([3.52, 0, 0], temp.get_positions()[-1]).all()
-    assert np.isclose([1, 0, 0], temp.get_velocities()[-1]).all()
+    pos, vel = f(1)
+    assert np.isclose([3.52, 0, 0], pos).all()
+    assert np.isclose([1, 0, 0], vel).all()
 
     f = tint._create_frame_generator([0.25, 0.25, 0.25], [1, 1, 1], np.sqrt(3))
-    temp = f(0.5)
-    assert np.isclose([3.52 * 0.75,]*3, temp.get_positions()[-1]).all()
-    assert np.isclose([1, 1, 1], temp.get_velocities()[-1]).all()
+    pos, vel = f(0.5)
+    assert np.isclose([3.52 * 0.75,]*3, pos).all()
+    assert np.isclose([1, 1, 1], vel).all()
 
     # Test the force generator (make sure it does not crash)
     f = tint._create_force_calculator([0.25, 0, 0], [1, 0, 0], 1)

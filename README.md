@@ -8,19 +8,41 @@ can run Python3 kernels.
 
 For that kernel environment, you need to install the libraries listed in `requirements.txt` via pip or Conda.
 
-Once those are installed, the next step is to install the development versions of 
-[ase](https://gitlab.com/ase/ase) and [matminer](https://github.com/hackingmaterials/matminer). 
-I have been making modifications to these codes for this project, and the versions with the necessary 
-additions have not been released on PyPI / Conda yet.
+Then, run `pip install -e .` to install the `stopping_power_ml` module.
+
+Once those are installed, the next step is to install the development version of 
+[ase](https://gitlab.com/ase/ase).
+
+## Organization
+
+This project is broken in to several subfolders.
+
+`datasets` contains all of the TD-DFT data associated with this project. 
+It is not tracked by git, so email Logan Ward to get a copy. 
+
+`stopping_power_ml` is a Python module that contains utility operations for this project. 
+Generally, these are methods that are used in more than one notebook.
+
+`single-velocity` contains notebooks related to predicting the stopping power using only data 
+relating to a single projectile velocity. We explore whether these models can be used
+to determine whether ML can be used to halt a stopping power calculation early, and
+whether our model can predict stopping power in different directions than 
+what was included in the training set.
+
+`multiple-velocities` [in progress] contains notebooks for testing whether our models
+can predict stopping powers in different directions *and* velocities.
 
 ## Running Notebooks
 
-You have two options for running these notebooks. First, you can go into Jupyter and run them sequentially:
+You will notice that the name for each notebook starts with a number. 
+To run the notebooks, execute them in the order indicated by this number because
+the output of some notebooks are used as inputs into the following notebooks. 
 
-1. generate-training-set.ipynb
-2. build-machine-learning-model.ipynb
-3. bayesian-regression-ci.ipynb
+Many of these notebooks use [Parsl](parsl.org) to perform calculations in parallel. 
+The notebooks are currently configured to use IPyParallel to execute calculations on
+your computer.
+Consequently, you must call `ipcluster start -n $n$` (where $n$ is the number of processors
+on your computer) before launching the notebooks.
 
-These notebooks take about two hours to run on a laptop with a recent Intel i7 processor.
-
-The other option is to run the notebooks from the command line by calling `./run-notebooks.sh`.
+A word of warning: the two notebooks in the root directory `0_parse_qbox` and 
+`1_generate_representation` take a significant amount of computing time to complete.
