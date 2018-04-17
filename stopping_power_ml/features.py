@@ -1,6 +1,8 @@
 """Functions related to computing features"""
 
 import abc
+import itertools
+from scipy.integrate import romb
 
 import numpy as np
 from matminer.featurizers.site import AGNIFingerprints
@@ -86,7 +88,7 @@ class IonIonForce(ProjectileFeaturizer):
         return [-1 * np.dot(my_force, velocity) / np.linalg.norm(velocity) * 0.03674932]
 
     def implementors(self):
-        return ['Logan Ward', ]
+        return ['Logan Ward']
 
     def citations(self):
         return []
@@ -102,28 +104,22 @@ class LocalChargeDensity(ProjectileFeaturizer):
     
     Parameters:
         charge - function that takes fractional coordinates as input, returns density
-        times - list of float, times at which to evaluate the density
     """
 
-    def __init__(self, simulation_cell, charge, times, **kwargs):
+    def __init__(self, simulation_cell, charge, **kwargs):
         super(LocalChargeDensity, self).__init__(simulation_cell, **kwargs)
         self.charge = charge
-        self.times = times
 
     def feature_labels(self):
-        return ['log density t=' + str(t) for t in self.times]
+        return ['charge density']
 
     def featurize(self, position, velocity):
-        # Compute the positions
-        cur_pos = np.array(self.times)[:, np.newaxis] * np.array(velocity)[-1, np.newaxis] \
-                  + position
-
         # Convert to reduced coordinates
-        cur_pos = np.linalg.solve(self.simulation_cell.lattice.matrix, cur_pos.T) % 1
-        return np.log(self.charge(cur_pos.T))
+        cur_pos = self.simulation_cell.lattice.get_fractional_coords(position) % 1
+        return [self.charge(cur_pos.T)]
 
     def implementors(self):
-        return ['Logan Ward', ]
+        return ['Logan Ward']
 
     def citations(self):
         return []
@@ -163,8 +159,7 @@ class ProjectedAGNIFingerprints(ProjectileFeaturizer):
         self.agni.cutoff = x
 
     def feature_labels(self):
-        return ['AGNI projected eta=%.2e' % x for x in self.agni.etas] + \
-               ['AGNI eta=%.2e' % x for x in self.agni.etas]
+        return ['AGNI projected eta=%.2e' % x for x in self.agni.etas]
 
     def featurize(self, position, velocity):
         # Compute the AGNI fingerprints [i,j] where i is fingerprint, and j is direction
@@ -177,10 +172,10 @@ class ProjectedAGNIFingerprints(ProjectileFeaturizer):
             velocity
         ) / np.linalg.norm(velocity)
 
-        return np.hstack((proj_fingerprints, fingerprints[:, -1]))
+        return proj_fingerprints
 
     def implementors(self):
-        return ['Logan Ward', ]
+        return ['Logan Ward']
 
     def citations(self):
         return []
@@ -234,3 +229,56 @@ class ProjectileVelocity(ProjectileFeaturizer):
 
     def featurize(self, position, velocity):
         return [np.linalg.norm(velocity)]
+
+
+class TimeAverage(ProjectileFeaturizer):
+    """Compute a weighted average of a feature over time
+
+    The weight of events are weighted by an expontial of their time from
+    the present. Users can set weights that determine whether the average of
+    features in the future are past are taken into account, how how quickly
+    the weights change."""
+
+    def __init__(self, structure, featurizer, strengths=(1, 2, 3, 4, -1, -2),
+                 k=5):
+        """Initialize the featurizer
+
+        Argss:
+            structure (Structure) - Structure to featurizer
+            featurizer (ProjectileFeaturizer) - Featurizer to average
+            strengths ([float]) - How strongly features contributions varies
+                with time from present. Positive weights mean the average
+                will be over past events, positive ones deal with the future
+            k (float) - 2 ** k + 1 points will be used in average"""
+        super(TimeAverage, self).__init__(structure, True)
+        self.featurizer = featurizer
+        self.strengths = strengths
+        self.k = k
+
+    def featurize(self, position, velocity):
+
+        outputs = []
+        for s in self.strengths:
+            # Determine particle positions and weights
+            times = np.linspace(-10/s, 0, 2 ** self.k + 1)
+            cur_pos = times[:, np.newaxis] * np.array([velocity] * len(times)) \
+                      + position
+            dt = times[1] - times[0]
+            weights = np.exp(times * s)
+
+            # Evaluate the features at each of these times
+            #  Do not use featurize_many because it is parallel
+            #  Multiply features by the weights to prepare for integration
+            features = [np.multiply(self.featurizer.featurize(pos, velocity),
+                        w) for pos, w in zip(cur_pos, weights)]
+
+            # Determine the average using Romberg integration
+            outputs.append(romb(features, dx=dt, axis=0))
+
+        # Flatten the output
+        return np.squeeze(np.hstack(outputs)).tolist()
+
+    def feature_labels(self):
+        return ['time average of {}, strength={:.2f}'.format(f, s)
+                for s, f in itertools.product(self.strengths,
+                                              self.featurizer.feature_labels())]
