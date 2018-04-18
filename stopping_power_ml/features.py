@@ -3,6 +3,7 @@
 import abc
 import itertools
 from scipy.integrate import romb
+from scipy.stats import skewnorm
 
 import numpy as np
 from matminer.featurizers.site import AGNIFingerprints
@@ -239,8 +240,8 @@ class TimeAverage(ProjectileFeaturizer):
     features in the future are past are taken into account, how how quickly
     the weights change."""
 
-    def __init__(self, structure, featurizer, strengths=(1, 2, 3, 4, -1, -2),
-                 k=5):
+    def __init__(self, structure, featurizer, strengths=(1, 2, 4),
+                 skewness=(-2, 0, 2), k=5):
         """Initialize the featurizer
 
         Argss:
@@ -253,32 +254,38 @@ class TimeAverage(ProjectileFeaturizer):
         super(TimeAverage, self).__init__(structure, True)
         self.featurizer = featurizer
         self.strengths = strengths
+        self.skewness = skewness
         self.k = k
 
     def featurize(self, position, velocity):
 
         outputs = []
+        X = np.linspace(-4, 4, 2 ** self.k + 1)
         for s in self.strengths:
-            # Determine particle positions and weights
-            times = np.linspace(-10/s, 0, 2 ** self.k + 1)
+            # Determine particle positions and features
+            times = X * s
             cur_pos = times[:, np.newaxis] * np.array([velocity] * len(times)) \
                       + position
             dt = times[1] - times[0]
-            weights = np.exp(times * s)
+            features = [self.featurizer.featurize(pos, velocity) for pos in cur_pos]
 
-            # Evaluate the features at each of these times
-            #  Do not use featurize_many because it is parallel
-            #  Multiply features by the weights to prepare for integration
-            features = [np.multiply(self.featurizer.featurize(pos, velocity),
-                        w) for pos, w in zip(cur_pos, weights)]
+            for a in self.skewness:
+                # Evaluate for different skewnesses
+                weights = skewnorm.pdf(X, a)
 
-            # Determine the average using Romberg integration
-            outputs.append(romb(features, dx=dt, axis=0))
+                # Evaluate the features at each of these times
+                #  Do not use featurize_many because it is parallel
+                #  Multiply features by the weights to prepare for integration
+                weighted_features = [np.multiply(feat, w) for feat, w
+                                     in zip(features, weights)]
+
+                # Determine the average using Romberg integration
+                outputs.append(romb(weighted_features, dx=dt, axis=0))
 
         # Flatten the output
         return np.squeeze(np.hstack(outputs)).tolist()
 
     def feature_labels(self):
-        return ['time average of {}, strength={:.2f}'.format(f, s)
-                for s, f in itertools.product(self.strengths,
-                                              self.featurizer.feature_labels())]
+        return ['time average of {}, strength={:.2f} skewness={:.2f}'.format(f, s, a)
+                for s, a, f in itertools.product(self.strengths, self.skewness,
+                                                 self.featurizer.feature_labels())]
