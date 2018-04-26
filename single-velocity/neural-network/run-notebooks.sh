@@ -8,7 +8,6 @@ runJupyter() {
 
 # If we get too many files, we should probably create a file containing
 #  names of notebooks and the order in which they should be executed
-for file in `seq 0 1`; do
-    runJupyter ${file}_*nb
+for n in `seq 0 1`; do
+    runJupyter ${n}_*nb
 done
-
