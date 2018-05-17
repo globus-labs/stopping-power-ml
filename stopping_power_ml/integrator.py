@@ -207,7 +207,8 @@ class TrajectoryIntegrator:
         def output(x):
             # Evaluate the model
             inputs = generator(x)
-            return self.model.predict(np.array([inputs]))[0]
+            res = self.model.predict(np.array([inputs]))
+            return res if res.shape == () else res[0]
         return output
 
     def compute_stopping_power(self, start_point, lattice_vector, velocity, hit_threshold=2,

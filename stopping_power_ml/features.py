@@ -116,7 +116,7 @@ class LocalChargeDensity(ProjectileFeaturizer):
     def featurize(self, position, velocity):
         # Convert to reduced coordinates
         cur_pos = self.simulation_cell.lattice.get_fractional_coords(position) % 1
-        return [self.charge(cur_pos.T)]
+        return np.log([self.charge(cur_pos.T)])
 
     def implementors(self):
         return ['Logan Ward']
@@ -229,7 +229,34 @@ class ProjectileVelocity(ProjectileFeaturizer):
 
     def featurize(self, position, velocity):
         return [np.linalg.norm(velocity)]
+    
 
+class TimeOffset(ProjectileFeaturizer):
+    """Compute the value of a feature at a different time
+    
+    The environment of the projectile is determined by using the 
+    known velocity of the projectile."""
+    
+    def __init__(self, structure, featurizer, offsets=(-4,-3,-2,-1,-0.5,0,0.5,1,2)):
+        """Initailize the featurizer
+        
+        Args:
+            structure (Structure) - Structure to featurizer
+            featurizer (ProjectileFeaturizer) - Featurizer to use
+            offsets ([float]) - Times relative to present at which to compute features
+            """
+        self.structure = structure
+        self.featurizer = featurizer
+        self.offsets = offsets
+        
+    def featurize(self, position, velocity):
+        positions = np.array(self.offsets)[:, np.newaxis] * \
+            np.array([velocity] * len(self.offsets)) + position
+        return np.ravel([self.featurizer.featurize(p, velocity) for p in positions])
+    
+    def feature_labels(self):
+        return ['{} at t={:.2f}'.format(f, t) for t, f in itertools.product(self.offsets,
+                                                                           self.featurizer.feature_labels())]
 
 class TimeAverage(ProjectileFeaturizer):
     """Compute a weighted average of a feature over time
