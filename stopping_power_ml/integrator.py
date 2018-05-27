@@ -18,7 +18,7 @@ class TrajectoryIntegrator:
 
         :param atoms: ase.Atoms, crystal structure being studied (including particle as the last atom)
         :param model: scikit-learn model, module used to predict stopping force
-        :param featurizers: [BaseFeaturizer], tool used to generate inputs to model"""
+        :param featurizers: BaseFeaturizer, tool used to generate inputs to model"""
 
         # Store the main details
         self.atoms = atoms
@@ -183,11 +183,7 @@ class TrajectoryIntegrator:
             frame = generator(x)
 
             # Get the inputs to the model
-            inputs = []
-            for f in self.featurizers:
-                x = f.featurize(*frame)
-                inputs.extend(x)
-            return inputs
+            return self.featurizers.featurize(*frame)
         return output
 
     def _create_force_calculator(self, start_point, lattice_vector, velocity):

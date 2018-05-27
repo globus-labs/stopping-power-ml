@@ -10,3 +10,8 @@ cd single-velocity
 # Now, run the NN portion
 cd neural-network
 ./run-notebooks.sh
+cd ..
+
+# Run the manifold part
+cd manifold
+./run-notebooks.sh
