@@ -99,6 +99,7 @@ class _SymmetrizedInterpolator:
 
                 # If an equivalent has not *yet* been found, compute density
                 pc = np.dot(prim_to_cell, sc)
+                pc = pc % 1
                 pcc.append(inter(pc))
 
             # If an equivalent is not found, return
@@ -187,15 +188,19 @@ def load_qbox_data(path):
     })
 
 
-def load_directory(d, prefix=""):
+def load_directory(d, prefix="", suffix=".out"):
     """Load in a directory holding a single trajectory
 
-    :param d: Path to directory
-    :param prefix: str, prefix to files that contain QBox outputs"""
+    Args:
+        d (string): Path do a directory
+        prefix (string): String at the beginning of files (default is "")
+        suffix (string): Extension of the file (default is ".out")
+    Returns:
+        (DataFrame): The data in all files"""
 
     # Read in the data files
     data = []
-    for file in glob('%s/%s*.out' % (d, prefix)):
+    for file in glob('%s/%s*%s' % (d, prefix, suffix)):
         try:
             frame = load_qbox_data(file)
         except:
