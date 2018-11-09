@@ -1,6 +1,7 @@
 import keras
 
-def build_fn(input_size=10, dense_layers=(10,10), activation='linear', use_linear_block=True):
+def build_fn(input_size=10, dense_layers=(10,10), activation='linear', use_linear_block=True,
+            optimizer_options=dict(loss='mean_absolute_error', optimizer='rmsprop', metrics=['mean_absolute_error'])):
     """Creates a Keras NN model
     
     Args:
@@ -8,6 +9,9 @@ def build_fn(input_size=10, dense_layers=(10,10), activation='linear', use_linea
         dense_layers ([int]) - Number of units in the dense layers
         activation (str) - Activation function in the dense layers
         use_linear_block (bool) - Whether to use the linear regression block
+        optimizer_options (dict) - Any options for the optimization routine
+    Returns:
+        (keras.models.Model) a Keras model
     """
     # Input layer
     inputs = keras.layers.Input(shape=(input_size,), name='input')
@@ -28,7 +32,5 @@ def build_fn(input_size=10, dense_layers=(10,10), activation='linear', use_linea
     
     # Make/compile the model
     model = keras.Model(inputs=inputs, outputs=outputs)
-    model.compile(loss='mean_absolute_error',
-                  optimizer='rmsprop',
-                 metrics=['mean_absolute_error'])
+    model.compile(**optimizer_options)
     return model
