@@ -234,6 +234,28 @@ class TrajectoryIntegrator:
 
         # Perform the integration
         return quad(f, 0, 1, epsabs=abserr, full_output=full_output, points=near_points, limit=max_inter, **kwargs)
+    
+    def create_force_calculator_given_displacement(self, start_point, traj_dir):
+        """Create a function that computes the stopping force given displacement and current velocity
+        
+        :param start_point: [float], starting point in conventional cell fractional coordinates
+        :param traj_dir: [float], directional of travel in cartesian coordiante
+        :return: (float, float)->float Takes displacement in distance units and velocity magnitude and computes force
+        """
+        
+        # Get the trajectory direction as a unit vector
+        traj_dir /= np.linalg.norm(traj_dir)
+        
+        # Convert the start point to Cartesian coordinates
+        start_point = self.conv_strc.lattice.get_cartesian_coords(start_point)
+        
+        # Make the function
+        def output(disp, vel_mag):
+            pos = start_point + disp * traj_dir
+            x = self.featurizers.featurize(pos, vel_mag * traj_dir)
+            return self.model.predict(np.array([x]))[0]
+        return output
+        
 
 if __name__ == '__main__':
     from ase.atoms import Atoms, Atom
