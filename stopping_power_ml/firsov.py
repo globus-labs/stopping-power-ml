@@ -65,8 +65,8 @@ class FirsovModel(ProjectileFeaturizer):
         # Get the velocity magnitude
         V = np.linalg.norm(velocity)
 
-        return V * self.N * (self.Z_A ** 2 / (1 + 0.8 * alpha * self.Z_A ** (1/3) * R / self.a) ** 4 
-                             + self.Z_B ** 2 / (1 + 0.8 * (1 - alpha) * self.Z_B ** (1/3) * R / self.a) ** 4)
+        return [V * self.N * (self.Z_A ** 2 / (1 + 0.8 * alpha * self.Z_A ** (1/3) * R / self.a) ** 4 
+                              + self.Z_B ** 2 / (1 + 0.8 * (1 - alpha) * self.Z_B ** (1/3) * R / self.a) ** 4)]
     
     def feature_labels():
         return ['Firsov force']
