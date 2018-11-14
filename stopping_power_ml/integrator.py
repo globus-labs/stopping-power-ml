@@ -244,7 +244,7 @@ class TrajectoryIntegrator:
         """
         
         # Get the trajectory direction as a unit vector
-        traj_dir /= np.linalg.norm(traj_dir)
+        traj_dir = np.divide(traj_dir, np.linalg.norm(traj_dir))
         
         # Convert the start point to Cartesian coordinates
         start_point = self.conv_strc.lattice.get_cartesian_coords(start_point)
