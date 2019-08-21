@@ -3,15 +3,16 @@ Repository for ML work with Andre Schleife on modeling stopping power
 
 ## Installation
 
-These notebooks are based on Python 3. So, the first thing you need is a working Jupyter installation that
-can run Python3 kernels.
+The environment for this project is defined in `environment.yml`.
+Install it using Conda:
 
-For that kernel environment, you need to install the libraries listed in `requirements.txt` via pip or Conda.
+```bash
+conda env create --file environment.yml --force
+```
 
-Then, run `pip install -e .` to install the `stopping_power_ml` module.
-
-Once those are installed, the next step is to install the development version of 
-[ase](https://gitlab.com/ase/ase).
+This will produce an environment named `td_dft` you must activate it
+following the instructions given by conda after installation and 
+launch Jupyter from within this environment for the notebooks to function. 
 
 ## Organization
 
