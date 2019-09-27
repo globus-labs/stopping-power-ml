@@ -23,6 +23,7 @@ args = parser.parse_args()
 if args.config == 'local':
     from parsl.executors import HighThroughputExecutor
     from parsl.providers import LocalProvider
+
     config = Config(
         executors=[
             HighThroughputExecutor(
@@ -50,15 +51,18 @@ elif args.config == 'theta':
                 tasks_per_node=tasks_per_node,
                 provider=LocalProvider(
                     launcher=AprunLauncher(),
-                    init_blocks=1,
-                    max_blocks=1,
-                    # Command to be run before starting a worker, such as:
-                    # 'module load Anaconda; source activate parsl_env'.
-                    worker_init='module load miniconda-3.6/conda-4.5.4; ',
+                    init_blocks=nnodes,
+                    max_blocks=nnodes,
+                    worker_init='''
+                    export PATH="/home/lward/miniconda3/bin:$PATH"
+                    source activate ml_tddft
+                    '''
                 ),
             )
         ],
     )
+else:
+    raise ValueError(f'Unrecognized configuration: {args.config}')
 
 parsl.load(config)
 
