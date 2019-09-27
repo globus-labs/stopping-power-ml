@@ -18,6 +18,6 @@ dependencies:
     - mdf_forge==0.7.3
     - matminer==0.4.3
     - ase==3.17.0
-    - parsl==0.6.1
+    - parsl==0.8.0
     - cvxopt==1.2.2
     - -e .
