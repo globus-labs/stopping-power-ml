@@ -1,6 +1,5 @@
 from concurrent.futures import as_completed
 from parsl.config import Config
-from parsl.configs import theta_local_htex_multinode
 from parsl import python_app
 from tqdm import tqdm
 from glob import glob
@@ -11,8 +10,10 @@ import os
 
 
 # Make an argument parser
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description="Run a stopping distance simulation in a single direction")
 parser.add_argument('--config', help='Parsl configuration', default='local')
+parser.add_argument('--direction', nargs=3, type=int, default=[1, 0, 0], help='Direction vector')
+parser.add_argument('--random-dir', action='store_true', help='Projectiles move in a random direction')
 parser.add_argument('velocity', help='Starting velocity', type=float)
 parser.add_argument('n_samples', help='Number of trajectories to sample', type=int)
 
@@ -28,8 +29,9 @@ if args.config == 'local':
         executors=[
             HighThroughputExecutor(
                 label='local',
-                max_workers=1,
-                provider=LocalProvider(max_blocks=1, )
+                max_workers=os.cpu_count() // 2,
+                cpu_affinity='block',
+                provider=LocalProvider(max_blocks=1, init_blocks=1)
             )
         ]
     )
@@ -49,6 +51,7 @@ elif args.config == 'theta':
                 max_workers=tasks_per_node,
                 address=address_by_hostname(),
                 tasks_per_node=tasks_per_node,
+                cpu_affinity='block',
                 provider=LocalProvider(
                     launcher=AprunLauncher(),
                     init_blocks=nnodes,
@@ -85,14 +88,6 @@ def compute_stopping_distance(start_point, start_velocity, output_freq=1000):
     import pickle as pkl
     import os
     
-    # Make Keras run serially
-    os.environ['OMP_NUM_THREADS'] = "1"
-    cfg = tf.ConfigProto()
-    cfg.inter_op_parallelism_threads = 1
-    cfg.intra_op_parallelism_threads = 1
-    sess = tf.Session(config=cfg)
-    K.set_session(sess)
-
     # Load in the computer
     with open('stop_dist_computer.pkl', 'rb') as fp:
         computer = pkl.load(fp)
@@ -103,22 +98,27 @@ def compute_stopping_distance(start_point, start_velocity, output_freq=1000):
 
 
 # Generate random starting points and directions on the unit sphere
-u = np.random.uniform(-1, 1, size=(args.n_samples, 1))
-v = np.random.uniform(0, 2 * np.pi, size=(args.n_samples, 1))
-velocities = np.hstack((
-    np.sqrt(1 - u ** 2) * np.cos(v),
-    np.sqrt(1 - u ** 2) * np.sin(v),
-    u
-))
-velocities *= args.velocity
+if not args.random_dir:
+    velocity = np.array(args.direction, dtype=np.float)
+    velocity *= args.velocity / np.linalg.norm(velocity)
+    velocities = np.tile(velocity, (args.n_samples, 1))
+    output_dir = f'v={args.velocity:.2f}-d={"_".join(map(str, args.direction))}'
+else:
+    u = np.random.uniform(-1, 1, size=(args.n_samples, 1))
+    v = np.random.uniform(0, 2 * np.pi, size=(args.n_samples, 1))
+    velocities = np.hstack((
+        np.sqrt(1 - u ** 2) * np.cos(v),
+        np.sqrt(1 - u ** 2) * np.sin(v),
+        u
+    ))
+    output_dir = f'v={args.velocity:.2f}-d=random'
 positions = np.random.uniform(size=(args.n_samples, 3))
 
 # Launch the calculations
-futures = [compute_stopping_distance(u, v) for u, v
-           in zip(positions, velocities)]
+futures = [compute_stopping_distance(u, v) for u, v in
+           zip(positions, velocities)]
 
 # Prepare the output directory and determine starting number
-output_dir = f'v={args.velocity:.2f}'
 result_file = os.path.join(output_dir, 'stop_dists.csv')
 if not os.path.isdir(output_dir):
     os.makedirs(output_dir)
@@ -128,7 +128,11 @@ run_number = len(glob(os.path.join(output_dir, 'traj_*.json')))
 
 # Store results as they are completed
 for future in tqdm(as_completed(futures), total=len(futures)):
-    distance, traj = future.result() # Unpack result
+    try:
+        distance, traj = future.result() # Unpack result
+    except BaseException as exc:
+        print(f'Run failed due to: {exc}')
+        continue
 
     # Append the stopping distance to a running record
     with open(result_file, 'a') as fp:
