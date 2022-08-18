@@ -12,7 +12,7 @@ dependencies:
   - h5py==2.9.0
   - keras==2.2.4
   - spglib==1.9.10.1
-  - jupyterlab
+  - jupyterlab<=1.13.1  # Last Py3.6 support
   - ase==3.22.0
   - pip
   - pip:
