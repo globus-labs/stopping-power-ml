@@ -72,7 +72,7 @@ parsl.load(config)
 
 # Make the Python function
 @python_app
-def compute_stopping_distance(start_point, start_velocity, output_freq=1000):
+def compute_stopping_distance(start_point, start_velocity, output_freq=10):
     """Compute the stopping distance for a certain trajectory
 
     Args:
@@ -110,7 +110,7 @@ else:
         np.sqrt(1 - u ** 2) * np.cos(v),
         np.sqrt(1 - u ** 2) * np.sin(v),
         u
-    ))
+    )) * args.velocity
     output_dir = f'v={args.velocity:.2f}-d=random'
 positions = np.random.uniform(size=(args.n_samples, 3))
 
