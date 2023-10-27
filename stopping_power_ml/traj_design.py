@@ -112,13 +112,14 @@ class TrajectoryOptimizer:
         # Score the trajectory
         return self.score_sampling_performance(traj_data)
 
-    def score_multiple_trajectories(self, trajs, traj_len, nsteps):
+    def score_multiple_trajectories(self, trajs, velocity, traj_len, nsteps):
         """Get the amount of space sampled by multiple trajectories
 
         Assumes each trajectory is equal length
 
         Args:
             trajs ([(float)*5]): Coordinates for multiple different trajectories
+            velocity (float): Velocity of the projectile
             traj_len (float): Total distance of the trajectories
             nsteps (int): Total number of steps between each directory
         Return:
@@ -132,7 +133,7 @@ class TrajectoryOptimizer:
         # Get the points sampled by each trajectory
         points = set()
         for traj in trajs:
-            data = self.generate_trajectory(traj[:3], traj[3:], 1, sub_len, sub_nsteps)
+            data = self.generate_trajectory(traj[:3], traj[3:], velocity, sub_len, sub_nsteps)
             points.update(self.get_near_points(data))
 
         # Return the score
