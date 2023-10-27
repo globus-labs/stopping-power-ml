@@ -2,6 +2,7 @@
 
 from scipy.optimize import minimize_scalar
 from scipy.integrate import RK45
+from time import perf_counter
 from copy import copy
 import pandas as pd
 import numpy as np
@@ -86,6 +87,7 @@ class StoppingDistanceComputer:
             - (float) Stopping distance
             - (pd.DataFrame) Velocity as a function of position and time
         """
+        start_time = perf_counter()
 
         # Make the force calculator
         fun = self._make_ode_function(start_point, start_velocity)
@@ -98,12 +100,12 @@ class StoppingDistanceComputer:
         
         # Iterate until velocity slows down enough
         i = 0
-        states = [(0, v_init, 0)]
+        states = [(0, v_init, 0, perf_counter() - start_time)]
         while rk.y[0] > stop_velocity_mag:
             rk.step()
             i += 1
             if output is not None and i % output == 0:
-                states.append(np.hstack(([rk.t], rk.y)))
+                states.append([rk.t, *rk.y, perf_counter() - start_time])
                 if status:
                     print('\rStep: {} - Time: {} - Velocity: {} - Position: {}'.format(i, rk.t, rk.y[0], rk.y[1]), end="")
                     
@@ -116,6 +118,6 @@ class StoppingDistanceComputer:
         # Return the results
         if output is not None:
             print('\rStep: {} - Time: {} - Velocity: {} - Position: {}'.format(i, rk.t, rk.y[0], rk.y[1]))
-            states = pd.DataFrame(dict(zip(['time', 'velocity', 'displacement'], np.transpose(states))))
+            states = pd.DataFrame(dict(zip(['time', 'velocity', 'displacement', 'sim_time'], np.transpose(states))))
             return stop_dist, states
         return stop_dist
