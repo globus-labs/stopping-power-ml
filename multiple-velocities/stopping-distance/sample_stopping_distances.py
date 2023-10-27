@@ -14,6 +14,7 @@ parser = argparse.ArgumentParser(description="Run a stopping distance simulation
 parser.add_argument('--config', help='Parsl configuration', default='local')
 parser.add_argument('--direction', nargs=3, type=int, default=[1, 0, 0], help='Direction vector')
 parser.add_argument('--random-dir', action='store_true', help='Projectiles move in a random direction')
+parser.add_argument('--random-seed', default=1, type=int)
 parser.add_argument('velocity', help='Starting velocity', type=float)
 parser.add_argument('n_samples', help='Number of trajectories to sample', type=int)
 
@@ -98,33 +99,43 @@ def compute_stopping_distance(start_point, start_velocity, output_freq=10):
 
 
 # Generate random starting points and directions on the unit sphere
+rng = np.random.RandomState(args.random_seed)
 if not args.random_dir:
     velocity = np.array(args.direction, dtype=np.float)
     velocity *= args.velocity / np.linalg.norm(velocity)
     velocities = np.tile(velocity, (args.n_samples, 1))
     output_dir = f'v={args.velocity:.2f}-d={"_".join(map(str, args.direction))}'
 else:
-    u = np.random.uniform(-1, 1, size=(args.n_samples, 1))
-    v = np.random.uniform(0, 2 * np.pi, size=(args.n_samples, 1))
+    u = rng.uniform(-1, 1, size=(args.n_samples, 1))
+    v = rng.uniform(0, 2 * np.pi, size=(args.n_samples, 1))
     velocities = np.hstack((
         np.sqrt(1 - u ** 2) * np.cos(v),
         np.sqrt(1 - u ** 2) * np.sin(v),
         u
     )) * args.velocity
     output_dir = f'v={args.velocity:.2f}-d=random'
-positions = np.random.uniform(size=(args.n_samples, 3))
+positions = rng.uniform(size=(args.n_samples, 3))
 
 # Launch the calculations
-futures = [compute_stopping_distance(u, v) for u, v in
-           zip(positions, velocities)]
-
+futures = []
+for run_id, (u, v) in enumerate(zip(positions, velocities)):
+    # Skip if already done
+    out_path = os.path.join(output_dir, f'traj_{run_id}.json')
+    if os.path.isfile(out_path):
+        continue
+    
+    # Otherwise submit and store the output path
+    future = compute_stopping_distance(u, v)
+    future.run_id = run_id
+    future.out_path = out_path
+    futures.append(future)
+    
 # Prepare the output directory and determine starting number
 result_file = os.path.join(output_dir, 'stop_dists.csv')
 if not os.path.isdir(output_dir):
     os.makedirs(output_dir)
     with open(result_file, 'w') as fp:
         print('run,stopping_dist', file=fp)
-run_number = len(glob(os.path.join(output_dir, 'traj_*.json')))
 
 # Store results as they are completed
 for future in tqdm(as_completed(futures), total=len(futures)):
@@ -136,10 +147,7 @@ for future in tqdm(as_completed(futures), total=len(futures)):
 
     # Append the stopping distance to a running record
     with open(result_file, 'a') as fp:
-        print(f'{run_number},{distance}', file=fp)
+        print(f'{future.run_id},{distance}', file=fp)
 
     # Store the trajectory as a json document
-    traj.to_json(os.path.join(output_dir, f'traj_{run_number}.json'))
-
-    # Increment run number
-    run_number += 1
+    traj.to_json(future.out_path, orient='split')
