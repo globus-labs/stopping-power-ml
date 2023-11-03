@@ -1,5 +1,8 @@
 # stopping-power-ml
-Repository for ML work with Andre Schleife on modeling stopping power
+
+A study of how to compute electronic stopping power quickly using a combination of machine learning and Time-Dependent Density Functional Theory (TD-DFT).
+
+See our [paper for more details](https://arxiv.org/abs/2311.00787v1)
 
 ## Installation
 
@@ -19,7 +22,8 @@ launch Jupyter from within this environment for the notebooks to function.
 This project is broken in to several subfolders.
 
 `datasets` contains all of the TD-DFT data associated with this project. 
-It is not tracked by git, so email Logan Ward to get a copy. 
+It is not tracked by git, so get the data from [our](https://acdc.alcf.anl.gov/mdf/detail/schleife_accurate_atomistic_stopping_v1.1/) [two](https://acdc.alcf.anl.gov/mdf/detail/schleife2018_v1.1/) 
+datasets on the Materials Data Facility.
 
 `stopping_power_ml` is a Python module that contains utility operations for this project. 
 Generally, these are methods that are used in more than one notebook.
@@ -30,7 +34,7 @@ to determine whether ML can be used to halt a stopping power calculation early, 
 whether our model can predict stopping power in different directions than 
 what was included in the training set.
 
-`multiple-velocities` [in progress] contains notebooks for testing whether our models
+`multiple-velocities` contains notebooks for testing whether our models
 can predict stopping powers in different directions *and* velocities.
 
 ## Running Notebooks
@@ -38,12 +42,6 @@ can predict stopping powers in different directions *and* velocities.
 You will notice that the name for each notebook starts with a number. 
 To run the notebooks, execute them in the order indicated by this number because
 the output of some notebooks are used as inputs into the following notebooks. 
-
-Many of these notebooks use [Parsl](parsl.org) to perform calculations in parallel. 
-The notebooks are currently configured to use IPyParallel to execute calculations on
-your computer.
-Consequently, you must call `ipcluster start -n $n$` (where $n$ is the number of processors
-on your computer) before launching the notebooks.
 
 A word of warning: the two notebooks in the root directory `0_parse_qbox` and 
 `1_generate_representation` take a significant amount of computing time to complete.
