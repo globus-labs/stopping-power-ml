@@ -2,7 +2,9 @@
 
 A study of how to compute electronic stopping power quickly using a combination of machine learning and Time-Dependent Density Functional Theory (TD-DFT).
 
-See our [paper for more details](https://arxiv.org/abs/2311.00787v1)
+See our [paper for more details](https://arxiv.org/abs/2311.00787v1). 
+
+A version of this project with the datasets and outputs used when writing our paper is [on the Materials Data Facility](https://acdc.alcf.anl.gov/mdf/detail/rtdftplusai_v1.1/)
 
 ## Installation
 
